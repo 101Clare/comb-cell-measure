@@ -2,6 +2,8 @@
 
 **A free, open-source tool that measures honeycomb cell size from one photo with a ruler lying on the comb.**
 
+**Use it now, free, in your browser: https://comb-cell-measure.streamlit.app/**
+
 Upload a photo, click two marks on the ruler, click two corners of a box over the cells, and press *Measure*.
 It finds the comb pattern, snaps every cell to its walls, and reports:
 
@@ -37,7 +39,7 @@ pip install -r requirements.txt
 streamlit run app/bee_app.py
 ```
 
-Or use the hosted version: *link to follow*.
+Or use the hosted version: https://comb-cell-measure.streamlit.app/
 
 ## Contributing photos
 
