@@ -46,7 +46,7 @@ Or use the hosted version: https://comb-cell-measure.streamlit.app/
 To help validate the tool, send comb photos taken as above, with your own "10 cells = __ mm" count if you have one.
 Say whether it's worker or drone comb, and whether it's foundation (which size) or natural / foundationless. Every
 contributor gets a free measurement report, and is credited by name or kept anonymous, as they prefer.
-Contact: *to be added*.
+Contact: Clare Rudling, clarerudling@yahoo.co.uk.
 
 ## How it works
 
