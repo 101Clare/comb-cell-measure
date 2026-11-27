@@ -34,3 +34,13 @@ def test_regularising_stretch_of_a_regular_lattice_is_identity():
     S, tilt = comb.regularising_stretch(basis)
     assert tilt == pytest.approx(0.0, abs=1e-3)
     assert np.allclose(S, np.eye(2), atol=1e-9)
+
+
+def test_regular_sample_with_few_cells_is_not_corrected():
+    """The generated honeycomb sample is perfectly regular; with only ~18 cells its fitted tilt is noise."""
+    from pathlib import Path
+    from PIL import Image
+    img = np.array(Image.open(Path(__file__).resolve().parents[1] / "samples" / "honeycomb.png").convert("RGB"))
+    r = comb.measure_comb(img, (80, 56), (720, 56), 50.0, (64, 140, 760, 665), max_cells=40, draw=False)
+    assert not r.tilt_corrected
+    assert r.median_width_mm == r.median_uncorrected_mm

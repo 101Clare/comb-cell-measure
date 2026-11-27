@@ -62,7 +62,7 @@ The measuring engine (`hexengine/`) began as a research tool for testing hexagon
   or covered cells.
 * **Tilt correction:** a phone held at an angle squashes the comb in one direction (10° makes cells read about
   1.5 % narrow that way). The snapped cell centres are fitted with a lattice; the stretch that makes it regular
-  gives the tilt, and above 3° the cells and the ruler are measured after that stretch. On synthetic combs tilted
+  gives the tilt. When it is above 3° and stands clearly above its own uncertainty (from resampling the cells), the cells and the ruler are measured after that stretch. On synthetic combs tilted
   5–30°, the corrected median was within 0.001 mm of the truth. This assumes the cells are regular on average,
   which holds for worker comb.
 * **Width:** the mean of the three opposite-wall distances.

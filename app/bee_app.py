@@ -147,7 +147,8 @@ if rep.tilt_deg is not None:
         st.caption(f"Camera tilt: about {rep.tilt_deg:.0f}°, found from the comb pattern and corrected (without "
                    f"the correction the median would read {rep.median_uncorrected_mm:.2f} mm).")
     else:
-        st.caption("Camera tilt: none detected (under 3°), so the photo was measured as taken.")
+        st.caption(f"Camera tilt: none clearly detected (estimate {rep.tilt_deg:.0f}°, within its uncertainty), so the "
+                   "photo was measured as taken.")
 for w in rep.warnings:
     st.warning(w)
 

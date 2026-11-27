@@ -12,7 +12,7 @@ This is the pilot pipeline (experiments/honeycomb_pilot.py, results_v4) as one c
 4. Tilt: a phone held at an angle squashes the comb along one direction, so cells read too narrow that way (10
    degrees costs about 1.5 %). Real worker comb is close to a regular hexagonal lattice, so the centres of the
    snapped cells are fitted with a lattice, and the stretch that makes it regular gives the tilt. Above
-   TILT_MIN_DEG the widths and the ruler scale are measured after that stretch (the ruler lies in the same plane);
+   TILT_MIN_DEG, and when the squash stands 2.5 standard errors clear of its bootstrap spread, the widths and the ruler scale are measured after that stretch (the ruler lies in the same plane);
    above TILT_WARN_DEG the user is asked to retake the photo straight-on.
 5. Per cell: flat-to-flat width (wall centre to wall centre, the quantity a "10 cells = 48 mm" count measures) and
    size class. Per comb: median and quartiles over the passed cells, plus the lattice spacing over the whole box
@@ -82,8 +82,11 @@ def _edge_score(fmap, corners_list) -> float:
     return float(np.mean(np.concatenate(vals))) if vals else 0.0
 
 
-def fit_lattice(centres: np.ndarray, basis: np.ndarray, anchor) -> np.ndarray | None:
-    """Least-squares lattice basis (2, 2) through cell centres (n, 2), indexed by rounding against `basis`."""
+def fit_lattice(centres: np.ndarray, basis: np.ndarray, anchor, n_boot: int = 0,
+                seed: int = 0) -> np.ndarray | None | tuple[np.ndarray, list[np.ndarray]]:
+    """Least-squares lattice basis (2, 2) through cell centres (n, 2), indexed by rounding against `basis`.
+
+    With n_boot > 0, also returns n_boot bases refitted on resampled cells (for the tilt's uncertainty)."""
     centres = np.asarray(centres, float)
     ij = np.round((centres - np.asarray(anchor, float)) @ np.linalg.inv(basis)).astype(int)
     if len(centres) < MIN_CELLS_FOR_TILT or np.ptp(ij[:, 0]) < 2 or np.ptp(ij[:, 1]) < 2:
@@ -97,7 +100,37 @@ def fit_lattice(centres: np.ndarray, basis: np.ndarray, anchor) -> np.ndarray | 
         if new.sum() < MIN_CELLS_FOR_TILT or (new == keep).all():
             break
         keep = new
-    return coef[1:]
+    if not n_boot:
+        return coef[1:]
+    rng = np.random.default_rng(seed)
+    idx = np.flatnonzero(keep)
+    boots = []
+    for _ in range(n_boot):
+        pick = rng.choice(idx, len(idx))
+        if np.ptp(ij[pick, 0]) < 2 or np.ptp(ij[pick, 1]) < 2:
+            continue
+        b, *_ = np.linalg.lstsq(X[pick], centres[pick], rcond=None)
+        boots.append(b[1:])
+    return coef[1:], boots
+
+
+def _squash(basis: np.ndarray) -> np.ndarray:
+    """Squash as a headless 2-vector (1 - cos tilt) * (cos 2phi, sin 2phi), phi the squash axis: averages cleanly."""
+    S, tilt = regularising_stretch(basis)
+    w, v = np.linalg.eigh(S)
+    phi = np.arctan2(v[1, 1], v[0, 1])                      # axis of the largest stretch
+    m = 1 - np.cos(np.radians(tilt))
+    return m * np.array([np.cos(2 * phi), np.sin(2 * phi)])
+
+
+def tilt_is_significant(fitted: np.ndarray, boots: list[np.ndarray], z: float = 2.5) -> bool:
+    """True when the squash stands clear of its bootstrap spread (z standard errors along its own direction)."""
+    q = _squash(fitted)
+    if len(boots) < 20 or not np.any(q):
+        return False
+    d = q / np.hypot(*q)
+    proj = np.array([_squash(b) @ d for b in boots])
+    return bool(np.hypot(*q) > z * proj.std())
 
 
 def regularising_stretch(basis: np.ndarray) -> tuple[np.ndarray, float]:
@@ -203,11 +236,12 @@ def measure_comb(img: np.ndarray, ruler_p1, ruler_p2, ruler_mm: float, box, tick
     ok = [c for c in rows if c.qc_pass]
     med_raw = float(np.median([c.width_mm for c in ok])) if ok else None
     tilt, corrected = None, False
-    fitted = fit_lattice(np.array([c.points.mean(axis=0) for c in ok]), basis, anchor) if ok else None
-    if fitted is not None:
+    fit = fit_lattice(np.array([c.points.mean(axis=0) for c in ok]), basis, anchor, n_boot=200) if ok else None
+    if fit is not None:
+        fitted, boots = fit
         S, tilt = regularising_stretch(fitted)
         lattice_px = float(np.mean(np.hypot(*lattice.neighbour_vectors(fitted).T)))   # sub-pixel spacing
-        if tilt >= TILT_MIN_DEG:
+        if tilt >= TILT_MIN_DEG and tilt_is_significant(fitted, boots):
             corrected = True
             p1s, p2s = S @ np.asarray(ruler_p1, float), S @ np.asarray(ruler_p2, float)
             scale = morphometry.Scale(tuple(p1s), tuple(p2s), float(ruler_mm))
