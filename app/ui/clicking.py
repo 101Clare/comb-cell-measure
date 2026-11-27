@@ -25,6 +25,8 @@ import numpy as np
 import streamlit as st
 from streamlit_image_coordinates import streamlit_image_coordinates
 
+from .compat import FILL
+
 from hexengine import render, transforms
 
 from . import compute, state
@@ -146,7 +148,7 @@ def _click_image(image_id: str, settings: dict, cell: int, wkey: str, colours: l
 
     if settings.get("fit_click_image", True):
         # Scale to the column width in the browser; the returned width/height are the rendered size.
-        streamlit_image_coordinates(shown, use_column_width="always", key=img_key)
+        streamlit_image_coordinates(shown, **FILL, key=img_key)
     else:
         streamlit_image_coordinates(shown, width=shown.shape[1], key=img_key)
 

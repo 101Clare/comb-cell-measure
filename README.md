@@ -11,6 +11,7 @@ It finds the comb pattern, snaps every cell to its walls, and reports:
 * the **spread** (middle half of the cells) and a histogram, so mixed-size foundationless comb shows up;
 * the **whole-comb spacing**, an independent second estimate from the comb's repeat pattern;
 * a check of your two ruler marks against the ruler's own millimetre ticks;
+* the **camera tilt**, found from the comb pattern and corrected automatically;
 * an indicative **size class** (natural / small-cell worker, standard worker, intermediate, drone);
 * downloads: a cell-by-cell table (CSV) and the marked-up photo (PNG).
 
@@ -59,6 +60,11 @@ The measuring engine (`hexengine/`) began as a research tool for testing hexagon
 * **Sub-pixel wall snapping:** each cell's six sides are found along the wall centrelines and fitted with straight
   lines, and the corners are their intersections, with a bootstrap error. A quality gate rejects blurred, damaged
   or covered cells.
+* **Tilt correction:** a phone held at an angle squashes the comb in one direction (10° makes cells read about
+  1.5 % narrow that way). The snapped cell centres are fitted with a lattice; the stretch that makes it regular
+  gives the tilt, and above 3° the cells and the ruler are measured after that stretch. On synthetic combs tilted
+  5–30°, the corrected median was within 0.001 mm of the truth. This assumes the cells are regular on average,
+  which holds for worker comb.
 * **Width:** the mean of the three opposite-wall distances.
 
 The full engine (geometry research app, tests, experiments and a write-up of the original hypothesis test) is

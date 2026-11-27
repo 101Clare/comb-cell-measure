@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import sys
+from importlib.metadata import version
 from pathlib import Path
 
 import cv2
@@ -24,6 +25,9 @@ import matplotlib.pyplot as plt  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hexengine import comb, morphometry  # noqa: E402
 
+# streamlit-image-coordinates 0.4 replaced use_column_width with width="stretch"
+_NEW_SIC = tuple(int(p) for p in version("streamlit-image-coordinates").split(".")[:2]) >= (0, 4)
+FILL = {"width": "stretch"} if _NEW_SIC else {"use_column_width": "always"}
 MAX_SIDE = 2000          # photos are reduced to this long side: cells stay large, measuring stays quick
 STEPS = ["ruler mark 1", "ruler mark 2", "one corner of the comb area", "the opposite corner of the comb area"]
 COLOURS = [(255, 0, 255), (255, 0, 255), (60, 200, 60), (60, 200, 60)]
@@ -91,7 +95,7 @@ with left:
         cv2.rectangle(shown, tuple(map(int, clicks[2])), tuple(map(int, clicks[3])), COLOURS[2], t)
     if st.session_state["report"] is not None and st.session_state["report"].overlay is not None:
         shown = st.session_state["report"].overlay
-    v = streamlit_image_coordinates(shown, use_column_width="always", key=f"photo{st.session_state['nonce']}")
+    v = streamlit_image_coordinates(shown, **FILL, key=f"photo{st.session_state['nonce']}")
     if v and "x" in v and len(clicks) < 4:
         sig = (v["x"], v["y"], v.get("width"), v.get("height"))
         if st.session_state["last"] != sig:
@@ -138,6 +142,12 @@ if rep.quartiles_mm:
                f"{rep.px_per_mm:.2f} px/mm" + ("" if rep.scale_disagreement_pct is None else
                                               f"; ruler ticks agree within {abs(rep.scale_disagreement_pct):.1f} %")
                + ".")
+if rep.tilt_deg is not None:
+    if rep.tilt_corrected:
+        st.caption(f"Camera tilt: about {rep.tilt_deg:.0f}°, found from the comb pattern and corrected (without "
+                   f"the correction the median would read {rep.median_uncorrected_mm:.2f} mm).")
+    else:
+        st.caption("Camera tilt: none detected (under 3°), so the photo was measured as taken.")
 for w in rep.warnings:
     st.warning(w)
 

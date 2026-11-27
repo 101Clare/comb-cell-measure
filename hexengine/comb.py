@@ -9,7 +9,12 @@ This is the pilot pipeline (experiments/honeycomb_pilot.py, results_v4) as one c
 3. Cells: an anchor is found by sliding a 3 x 3 patch of lattice cells over one cell's worth of positions and
    keeping the best fit to the walls. Every lattice cell inside the box is then snapped to its walls
    (refine.refine_auto) and must pass the engine's quality gate.
-4. Per cell: flat-to-flat width (wall centre to wall centre, the quantity a "10 cells = 48 mm" count measures) and
+4. Tilt: a phone held at an angle squashes the comb along one direction, so cells read too narrow that way (10
+   degrees costs about 1.5 %). Real worker comb is close to a regular hexagonal lattice, so the centres of the
+   snapped cells are fitted with a lattice, and the stretch that makes it regular gives the tilt. Above
+   TILT_MIN_DEG the widths and the ruler scale are measured after that stretch (the ruler lies in the same plane);
+   above TILT_WARN_DEG the user is asked to retake the photo straight-on.
+5. Per cell: flat-to-flat width (wall centre to wall centre, the quantity a "10 cells = 48 mm" count measures) and
    size class. Per comb: median and quartiles over the passed cells, plus the lattice spacing over the whole box
    as a second, independent estimate.
 
@@ -27,6 +32,9 @@ import numpy as np
 from . import lattice, morphometry, refine, render
 
 LATTICE_SPREAD_MAX = 0.15
+TILT_MIN_DEG = 3.0       # below this the change is under 0.15 % (and near the fit's noise, ~1 degree): no correction
+TILT_WARN_DEG = 20.0     # above this perspective is no longer a simple stretch: ask for a straight-on photo
+MIN_CELLS_FOR_TILT = 8
 SCALES = (1.0, 1.5, 2.5)
 
 
@@ -55,6 +63,9 @@ class CombReport:
     quartiles_mm: tuple[float, float] | None
     size_class: str | None
     class_counts: dict[str, int]
+    tilt_deg: float | None = None            # estimated camera tilt from the cell lattice
+    tilt_corrected: bool = False
+    median_uncorrected_mm: float | None = None
     cells: list[CellRow] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     overlay: np.ndarray | None = None
@@ -69,6 +80,38 @@ def _edge_score(fmap, corners_list) -> float:
             pts = (a + ts * (b - a)).astype(np.float32)
             vals.append(cv2.remap(fmap, pts[:, :1], pts[:, 1:], cv2.INTER_LINEAR).ravel())
     return float(np.mean(np.concatenate(vals))) if vals else 0.0
+
+
+def fit_lattice(centres: np.ndarray, basis: np.ndarray, anchor) -> np.ndarray | None:
+    """Least-squares lattice basis (2, 2) through cell centres (n, 2), indexed by rounding against `basis`."""
+    centres = np.asarray(centres, float)
+    ij = np.round((centres - np.asarray(anchor, float)) @ np.linalg.inv(basis)).astype(int)
+    if len(centres) < MIN_CELLS_FOR_TILT or np.ptp(ij[:, 0]) < 2 or np.ptp(ij[:, 1]) < 2:
+        return None
+    X = np.column_stack([np.ones(len(ij)), ij])
+    keep = np.ones(len(X), bool)
+    for _ in range(4):                                      # refit without cells that sit off the lattice
+        coef, *_ = np.linalg.lstsq(X[keep], centres[keep], rcond=None)   # rows: origin, a1, a2
+        res = np.hypot(*(centres - X @ coef).T)
+        new = res <= max(0.5, 3.0 * np.median(res[keep]))
+        if new.sum() < MIN_CELLS_FOR_TILT or (new == keep).all():
+            break
+        keep = new
+    return coef[1:]
+
+
+def regularising_stretch(basis: np.ndarray) -> tuple[np.ndarray, float]:
+    """Symmetric 2x2 stretch S (det 1) that turns the lattice into a regular hexagonal one, and the tilt (degrees)
+    a flat comb would need to look this squashed (cos tilt = smallest / largest stretch)."""
+    n = lattice.neighbour_vectors(basis)
+    u1, u2 = n[0], n[1]                                     # adjacent by angle: about 60 degrees apart
+    U = np.column_stack([u1, u2])
+    sgn = 1.0 if u1[0] * u2[1] - u1[1] * u2[0] > 0 else -1.0
+    T = np.column_stack([[1.0, 0.0], [0.5, sgn * np.sqrt(3) / 2]])
+    A = T @ np.linalg.inv(U)
+    W, sv, Vt = np.linalg.svd(A)
+    S = Vt.T @ np.diag(sv / np.sqrt(sv[0] * sv[1])) @ Vt   # drop the rotation, keep area
+    return S, float(np.degrees(np.arccos(min(1.0, sv[1] / sv[0]))))
 
 
 def comb_lattice(img: np.ndarray, box) -> np.ndarray:
@@ -158,6 +201,24 @@ def measure_comb(img: np.ndarray, ruler_p1, ruler_p2, ruler_mm: float, box, tick
             shown = render.draw_points(shown, r.points, labels=False,
                                        color=(0, 230, 255) if r.qc_pass else (255, 60, 60))
     ok = [c for c in rows if c.qc_pass]
+    med_raw = float(np.median([c.width_mm for c in ok])) if ok else None
+    tilt, corrected = None, False
+    fitted = fit_lattice(np.array([c.points.mean(axis=0) for c in ok]), basis, anchor) if ok else None
+    if fitted is not None:
+        S, tilt = regularising_stretch(fitted)
+        lattice_px = float(np.mean(np.hypot(*lattice.neighbour_vectors(fitted).T)))   # sub-pixel spacing
+        if tilt >= TILT_MIN_DEG:
+            corrected = True
+            p1s, p2s = S @ np.asarray(ruler_p1, float), S @ np.asarray(ruler_p2, float)
+            scale = morphometry.Scale(tuple(p1s), tuple(p2s), float(ruler_mm))
+            for c in rows:
+                m = morphometry.measure_cell(c.points @ S.T, scale)
+                c.width_mm, c.widths_mm = float(m.width_mm), tuple(float(v) for v in m.widths_mm)
+                c.anisotropy_mm, c.size_class = float(m.anisotropy_mm), m.size_class
+            lattice_px = float(np.mean(np.hypot(*(lattice.neighbour_vectors(fitted) @ S.T).T)))
+        if tilt > TILT_WARN_DEG:
+            warnings.append(f"the photo looks tilted by about {tilt:.0f} degrees: the tilt is corrected, but for "
+                            "the best accuracy hold the phone parallel to the comb")
     w = np.array([c.width_mm for c in ok])
     med = float(np.median(w)) if len(w) else None
     if len(ok) < 5:
@@ -172,7 +233,7 @@ def measure_comb(img: np.ndarray, ruler_p1, ruler_p2, ruler_mm: float, box, tick
     return CombReport(
         px_per_mm=scale.px_per_mm, tick_px_per_mm=ticks, scale_disagreement_pct=dis,
         lattice_width_mm=lattice_px * scale.mm_per_px, cells_tried=len(cands), cells_passed=len(ok),
-        median_width_mm=med,
+        median_width_mm=med, tilt_deg=tilt, tilt_corrected=corrected, median_uncorrected_mm=med_raw,
         quartiles_mm=None if len(w) < 4 else tuple(float(q) for q in np.percentile(w, [25, 75])),
         size_class=None if med is None else morphometry.classify(med), class_counts=counts, cells=rows,
         warnings=warnings, overlay=shown)

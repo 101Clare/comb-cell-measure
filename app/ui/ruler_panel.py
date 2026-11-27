@@ -11,6 +11,8 @@ import numpy as np
 import streamlit as st
 from streamlit_image_coordinates import streamlit_image_coordinates
 
+from .compat import FILL
+
 from hexengine import morphometry, render
 
 from . import compute, state
@@ -29,9 +31,13 @@ def render_panel(image_id: str, settings: dict, analysis) -> None:
         st.caption("Click two points on the ruler (for example two centimetre marks), then enter the distance between "
                    "them. Use the longest stretch of ruler you can, and the ruler that lies on the comb itself.")
         c1, c2 = st.columns([3, 2])
-        mm = c2.number_input("Known distance (mm)", min_value=0.1, max_value=1000.0, value=float(ruler["mm"]),
-                             step=1.0, key=f"ruler_mm_{image_id}")
-        ruler["mm"] = float(mm)
+        # The box follows the stored distance when that changes elsewhere (e.g. a loaded session), and the user's
+        # typing otherwise. Newer Streamlit ignores value= once a keyed widget exists, so set its state directly.
+        key, seen = f"ruler_mm_{image_id}", st.session_state.setdefault("ruler_mm_seen", {})
+        if seen.get(image_id) != float(ruler["mm"]):
+            st.session_state[key] = float(ruler["mm"])
+        mm = c2.number_input("Known distance (mm)", min_value=0.1, max_value=1000.0, step=1.0, key=key)
+        ruler["mm"] = seen[image_id] = float(mm)
         c2.button("Clear ruler points", key=f"ruler_clear_{image_id}", on_click=_clear, args=(image_id,),
                   disabled=not ruler["points"])
         disp, scale_f = compute.display_base(image_id, settings["display_width"])
@@ -40,7 +46,7 @@ def render_panel(image_id: str, settings: dict, analysis) -> None:
             pts = np.asarray(ruler["points"], float) * scale_f
             shown = render.draw_points(shown, pts, closed=False, color=RULER_COLOUR)
         wkey = f"ruler_{image_id}"
-        value = streamlit_image_coordinates(shown, use_column_width="always",
+        value = streamlit_image_coordinates(shown, **FILL,
                                             key=f"{wkey}_img{st.session_state['nonce'].get(wkey, 0)}")
         if value and "x" in value:
             sig = (value["x"], value["y"], value.get("width"), value.get("height"))
