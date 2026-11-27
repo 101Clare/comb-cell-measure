@@ -1,0 +1,15 @@
+[server]
+headless = true
+runOnSave = false
+maxUploadSize = 200          # MB per upload
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "dark"
+primaryColor = "#E8B923"              # gold, matches the manifold overlays
+backgroundColor = "#14161A"
+secondaryBackgroundColor = "#1F232A"
+textColor = "#E6E6E6"
+font = "sans serif"

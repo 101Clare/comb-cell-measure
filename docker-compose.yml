@@ -1,0 +1,17 @@
+services:
+  hex-engine:
+    build: .
+    container_name: hex-engine
+    ports:
+      - "8501:8501"
+    volumes:
+      # Uploads, saved points and exports. Lives in .\data on your PC, so it survives restarts and rebuilds.
+      - ./data:/app/data
+      # Live experimentation: the source folders are mounted over the copies baked into the image.
+      # Because .streamlit/config.toml sets runOnSave = true, saving a file on your PC re-runs the app
+      # straight away - no rebuild needed. (Changing requirements.txt or the Dockerfile still needs
+      # `docker compose up -d --build`.)
+      - ./hexengine:/app/hexengine
+      - ./app:/app/app
+      - ./samples:/app/samples
+    restart: unless-stopped
